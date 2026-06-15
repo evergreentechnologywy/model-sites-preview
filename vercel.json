@@ -2,11 +2,16 @@
   "version": 2,
   "builds": [
     {
-      "src": "*/index.html",
+      "src": "*.site/index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "*.site/assets/*",
       "use": "@vercel/static"
     }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/:domain/index.html" }
+    { "source": "/:slug", "destination": "/:slug.site" },
+    { "source": "/:slug/:path*", "destination": "/:slug.site/:path*" }
   ]
 }
