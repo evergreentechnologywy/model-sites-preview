@@ -1,7 +1,3 @@
 {
-  "version": 2,
-  "rewrites": [
-    { "source": "/:slug", "destination": "/:slug.site" },
-    { "source": "/:slug/:path*", "destination": "/:slug.site/:path*" }
-  ]
+  "version": 2
 }
