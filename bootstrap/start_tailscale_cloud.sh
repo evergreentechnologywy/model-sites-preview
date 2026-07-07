@@ -11,11 +11,6 @@ if [[ -z "$AUTH_KEY" && -f /run/secrets/tailscale-auth-key ]]; then
   AUTH_KEY="$(tr -d '[:space:]' < /run/secrets/tailscale-auth-key)"
 fi
 
-if [[ -z "$AUTH_KEY" ]]; then
-  echo "[start_tailscale_cloud] ERROR: TAILSCALE_AUTH_KEY or TS_AUTHKEY required for non-interactive cloud bootstrap" >&2
-  exit 1
-fi
-
 echo "[start_tailscale_cloud] hostname=${HOSTNAME_VALUE}"
 
 if ! command -v tailscale >/dev/null 2>&1; then
@@ -30,6 +25,14 @@ TAILSCALED_ARGS=(--state="$TS_STATE" --socket="$TS_SOCKET")
 # Cloud/container environments may lack /dev/net/tun.
 if [[ ! -c /dev/net/tun ]]; then
   TAILSCALED_ARGS+=(--tun=userspace-networking)
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo mkdir -p /etc/systemd/system/tailscaled.service.d
+    sudo tee /etc/systemd/system/tailscaled.service.d/userspace-networking.conf >/dev/null <<'EOF'
+[Service]
+Environment=TS_USERSPACE_NETWORKING=true
+EOF
+    sudo systemctl daemon-reload
+  fi
 fi
 
 if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
@@ -47,14 +50,16 @@ else
   fi
 fi
 
-UP_ARGS=(--ssh --hostname="$HOSTNAME_VALUE" --accept-routes --auth-key="$AUTH_KEY")
-
-if sudo tailscale status >/dev/null 2>&1; then
+if sudo tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
   echo "[start_tailscale_cloud] already connected"
 else
+  if [[ -z "$AUTH_KEY" ]]; then
+    echo "[start_tailscale_cloud] ERROR: TAILSCALE_AUTH_KEY or TS_AUTHKEY required for non-interactive cloud bootstrap" >&2
+    exit 1
+  fi
   echo "[start_tailscale_cloud] joining tailnet"
-  sudo tailscale up "${UP_ARGS[@]}"
+  sudo tailscale --socket="$TS_SOCKET" up --ssh --hostname="$HOSTNAME_VALUE" --accept-routes --auth-key="$AUTH_KEY"
 fi
 
-sudo tailscale status
+sudo tailscale --socket="$TS_SOCKET" status
 echo "[start_tailscale_cloud] done"
