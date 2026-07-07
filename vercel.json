@@ -1,7 +1,8 @@
 {
   "version": 2,
+  "trailingSlash": true,
   "rewrites": [
-    { "source": "/([^/]+)", "destination": "/$1.site" },
-    { "source": "/([^/]+)/(.*)", "destination": "/$1.site/$2" }
+    { "source": "/([^/.]+)/?", "destination": "/$1.site/" },
+    { "source": "/([^/.]+)/(.*)", "destination": "/$1.site/$2" }
   ]
 }

@@ -5,40 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Model Sites Preview</title>
 <script>
-(function() {
-  var path = window.location.pathname.replace(/^\/+|\/+$/g, '');
-  if (path && path.indexOf('.') === -1) {
-    // Try to load the model site
-    var xhr = new XMLHttpRequest();
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState === 4) {
-        if (xhr.status === 200) {
-          document.open();
-          document.write(xhr.responseText);
-          document.close();
-        } else {
-          document.getElementById('root').innerHTML = '<h1>Model Site: ' + path + '</h1><p>Site not found. Available models:</p><ul id="models"></ul>';
-        }
-      }
-    };
-    xhr.open('GET', '/' + path + '.site/', true);
-    xhr.send();
-  } else {
-    var models = ['alicetorres','alessiadiluca','ambergrace','angelinapellegrini',
-      'catalinaainoa','dianareyes','gatitabellavip','juliafoxvip','katymilano',
-      'larablake','laurabianchixoxo','nicolevalentina','oliviavaz','paulinalea',
-      'rubyvega','sabrinabenitez','tssweetcat','wandacruz'];
-    var list = document.getElementById('models');
-    if (list) models.forEach(function(m) {
+window.addEventListener('DOMContentLoaded', function() {
+  var models = ['alicetorres','alessiadiluca','ambergrace','angelinapellegrini',
+    'catalinaainoa','dianareyes','gatitabellavip','juliafoxvip','katymilano',
+    'larablake','laurabianchixoxo','nicolevalentina','oliviavaz','paulinalea',
+    'rubyvega','sabrinabenitez','tssweetcat','wandacruz'];
+  var list = document.getElementById('models');
+  if (list) {
+    models.forEach(function(m) {
       var li = document.createElement('li');
       var a = document.createElement('a');
-      a.href = '/' + m;
+      a.href = '/' + m + '/';
       a.textContent = m;
       li.appendChild(a);
       list.appendChild(li);
     });
   }
-})();
+});
 </script>
 <style>
 body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
@@ -51,7 +34,6 @@ li { margin: 8px 0; }
 <body>
 <div id="root">
 <h1>Model Sites Preview</h1>
-<p>Loading...</p>
 <ul id="models"></ul>
 </div>
 </body>
