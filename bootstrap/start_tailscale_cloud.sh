@@ -33,6 +33,7 @@ if [[ -z "$TS_AUTHKEY" ]]; then
     read_authkey_file "$candidate" && break
   done
 fi
+export TS_AUTHKEY
 
 if [[ "$(id -u)" -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
@@ -45,7 +46,16 @@ fi
 
 mkdir -p "$(dirname "$TS_SOCKET")" "$TS_STATE_DIR"
 
-if ! pgrep -x tailscaled >/dev/null 2>&1; then
+if pgrep -af 'tailscaled.*userspace-networking' >/dev/null 2>&1 \
+  && "${TS_CMD[@]}" status >/dev/null 2>&1; then
+  log "Userspace tailscaled already running"
+else
+  if pgrep -x tailscaled >/dev/null 2>&1; then
+    log "Stopping existing tailscaled to start userspace instance"
+    systemctl stop tailscaled 2>/dev/null || true
+    pkill -x tailscaled 2>/dev/null || true
+    sleep 1
+  fi
   log "Starting tailscaled (userspace networking)"
   nohup tailscaled \
     --state="$TS_STATE_DIR/tailscaled.state" \
@@ -54,12 +64,18 @@ if ! pgrep -x tailscaled >/dev/null 2>&1; then
     --outbound-http-proxy-listen="localhost:${TS_USERSPACE_PORT_HTTP}" \
     --socks5-server="localhost:${TS_USERSPACE_PORT_SOCKS}" \
     >/var/log/tailscaled.log 2>&1 &
+  ready=false
   for _ in $(seq 1 30); do
     if "${TS_CMD[@]}" status >/dev/null 2>&1; then
+      ready=true
       break
     fi
     sleep 1
   done
+  if [[ "$ready" != true ]]; then
+    log "tailscaled did not become ready within 30s; see /var/log/tailscaled.log"
+    exit 1
+  fi
 fi
 
 export ALL_PROXY="socks5h://localhost:${TS_USERSPACE_PORT_SOCKS}/"
