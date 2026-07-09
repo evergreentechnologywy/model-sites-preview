@@ -17,6 +17,12 @@ if ! command -v tailscale >/dev/null 2>&1; then
   exit 1
 fi
 
+if pgrep -x tailscaled >/dev/null 2>&1 && ! tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
+  log "Stopping stale tailscaled (socket mismatch)"
+  pkill -x tailscaled 2>/dev/null || true
+  sleep 1
+fi
+
 if ! pgrep -x tailscaled >/dev/null 2>&1; then
   log "tailscaled not running; delegating to install script"
   exec bash "$(dirname "$0")/install_cursor_cloud_tailscale.sh"

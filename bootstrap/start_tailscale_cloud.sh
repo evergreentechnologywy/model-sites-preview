@@ -45,6 +45,12 @@ fi
 
 mkdir -p "$(dirname "$TS_SOCKET")" "$TS_STATE_DIR"
 
+if pgrep -x tailscaled >/dev/null 2>&1 && ! "${TS_CMD[@]}" status >/dev/null 2>&1; then
+  log "Stopping stale tailscaled (socket mismatch)"
+  pkill -x tailscaled 2>/dev/null || true
+  sleep 1
+fi
+
 if ! pgrep -x tailscaled >/dev/null 2>&1; then
   log "Starting tailscaled (userspace networking)"
   nohup tailscaled \
@@ -65,6 +71,12 @@ fi
 export ALL_PROXY="socks5h://localhost:${TS_USERSPACE_PORT_SOCKS}/"
 export HTTP_PROXY="http://localhost:${TS_USERSPACE_PORT_HTTP}/"
 export HTTPS_PROXY="http://localhost:${TS_USERSPACE_PORT_HTTP}/"
+
+if "${TS_CMD[@]}" status 2>/dev/null | grep -qE '^100\.'; then
+  log "Already connected"
+  "${TS_CMD[@]}" status
+  exit 0
+fi
 
 UP_ARGS=(up --ssh --hostname="$TS_HOSTNAME" --accept-routes=false --reset)
 if [[ -n "$TS_AUTHKEY" ]]; then
