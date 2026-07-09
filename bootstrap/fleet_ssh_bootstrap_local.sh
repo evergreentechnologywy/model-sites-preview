@@ -1,24 +1,43 @@
 #!/usr/bin/env bash
+# Evergreen fleet — enable Tailscale SSH and verify fleet SSH readiness.
 set -euo pipefail
 
-# Evergreen fleet: enable Tailscale SSH (RunSSH) on this node.
+TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
+TS_HOSTNAME="${TS_HOSTNAME:-${FLEET_HOSTNAME:-cursor-model-sites-preview}}"
+TS_CMD=(tailscale --socket="$TS_SOCKET")
 
-echo "[fleet_ssh_bootstrap_local] enabling Tailscale SSH"
+log() { printf '[fleet_ssh_bootstrap_local] %s\n' "$*"; }
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  exec sudo -E bash "$0" "$@"
+fi
 
 if ! command -v tailscale >/dev/null 2>&1; then
-  echo "tailscale not installed; run bootstrap/start_tailscale_cloud.sh first" >&2
+  log "Tailscale not installed; run bootstrap/start_tailscale_cloud.sh first"
   exit 1
 fi
 
-sudo tailscale set --ssh
-sudo tailscale debug prefs | grep -i RunSSH || true
+log "Enabling Tailscale SSH (RunSSH)"
+"${TS_CMD[@]}" set --ssh --hostname="$TS_HOSTNAME"
 
-echo "[fleet_ssh_bootstrap_local] SSH listen check"
-if ss -tlnp 2>/dev/null | grep -q ':22'; then
-  echo "[fleet_ssh_bootstrap_local] port 22 listening (openssh or tailscale ssh)"
-else
-  echo "[fleet_ssh_bootstrap_local] port 22 not bound — Tailscale SSH-only (expected on cloud agents)"
+log "Verifying RunSSH preference"
+if ! "${TS_CMD[@]}" debug prefs | grep -q '"RunSSH":true'; then
+  log "ERROR: RunSSH is not true"
+  exit 1
 fi
 
-sudo tailscale ip -4 || true
-echo "[fleet_ssh_bootstrap_local] done"
+if command -v ss >/dev/null 2>&1; then
+  if ss -tlnp | grep -q ':22 '; then
+    log "OpenSSH listening on :22 (Tailscale SSH also enabled)"
+  else
+    log "No listener on :22 — Tailscale SSH-only mode"
+  fi
+fi
+
+TS_IP="$("${TS_CMD[@]}" ip -4)"
+if [[ -z "$TS_IP" ]]; then
+  log "ERROR: no Tailscale IPv4 assigned (node not logged in?)"
+  exit 1
+fi
+
+log "Fleet SSH ready on ${TS_HOSTNAME} (${TS_IP})"

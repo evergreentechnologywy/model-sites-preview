@@ -1,60 +1,84 @@
 #!/usr/bin/env bash
+# Evergreen fleet — Tailscale userspace bootstrap for Cursor Cloud Agent VMs.
+# See: https://cursor.com/docs/cloud-agent/setup#running-tailscale
 set -euo pipefail
 
-# Evergreen fleet: install Tailscale and join the tailnet on cloud agents.
-# Requires TAILSCALE_AUTH_KEY or TS_AUTHKEY in the environment.
+TS_AUTHKEY="${TS_AUTHKEY:-${TAILSCALE_AUTHKEY:-${TAILSCALE_AUTH_KEY:-}}}"
+TS_HOSTNAME="${TS_HOSTNAME:-${FLEET_HOSTNAME:-cursor-model-sites-preview}}"
+TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
+TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
+TS_USERSPACE_PORT_HTTP="${TS_USERSPACE_PORT_HTTP:-1054}"
+TS_USERSPACE_PORT_SOCKS="${TS_USERSPACE_PORT_SOCKS:-1055}"
+TS_CMD=(tailscale --socket="$TS_SOCKET")
 
-HOSTNAME_VALUE="${FLEET_HOSTNAME:-${CURSOR_CONVERSATION_ID:-$(hostname -s)}}"
-AUTH_KEY="${TAILSCALE_AUTH_KEY:-${TS_AUTHKEY:-}}"
+log() { printf '[start_tailscale_cloud] %s\n' "$*"; }
 
-if [[ -z "$AUTH_KEY" && -f /run/secrets/tailscale-auth-key ]]; then
-  AUTH_KEY="$(tr -d '[:space:]' < /run/secrets/tailscale-auth-key)"
+read_authkey_file() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  local key
+  key="$(tr -d '[:space:]' <"$path")"
+  [[ -n "$key" ]] || return 1
+  TS_AUTHKEY="$key"
+  return 0
+}
+
+if [[ -z "$TS_AUTHKEY" ]]; then
+  for candidate in \
+    /run/secrets/TS_AUTHKEY \
+    /run/secrets/ts_authkey \
+    /etc/evergreen/ts_authkey \
+    "${HOME}/.evergreen/ts_authkey" \
+    "${HOME}/.config/evergreen/ts_authkey"; do
+    read_authkey_file "$candidate" && break
+  done
 fi
 
-if [[ -z "$AUTH_KEY" ]]; then
-  echo "[start_tailscale_cloud] ERROR: TAILSCALE_AUTH_KEY or TS_AUTHKEY required for non-interactive cloud bootstrap" >&2
-  exit 1
+if [[ "$(id -u)" -ne 0 ]]; then
+  exec sudo -E bash "$0" "$@"
 fi
-
-echo "[start_tailscale_cloud] hostname=${HOSTNAME_VALUE}"
 
 if ! command -v tailscale >/dev/null 2>&1; then
-  echo "[start_tailscale_cloud] installing tailscale"
+  log "Installing Tailscale"
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
 
-TS_SOCKET="${TS_SOCKET:-/run/tailscale/tailscaled.sock}"
-TS_STATE="${TS_STATE:-/var/lib/tailscale/tailscaled.state}"
-TAILSCALED_ARGS=(--state="$TS_STATE" --socket="$TS_SOCKET")
+mkdir -p "$(dirname "$TS_SOCKET")" "$TS_STATE_DIR"
 
-# Cloud/container environments may lack /dev/net/tun.
-if [[ ! -c /dev/net/tun ]]; then
-  TAILSCALED_ARGS+=(--tun=userspace-networking)
-fi
-
-if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
-  sudo systemctl enable --now tailscaled
-else
-  sudo mkdir -p /run/tailscale /var/lib/tailscale
-  if ! sudo tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1; then
-    sudo pkill -x tailscaled 2>/dev/null || true
+if ! pgrep -x tailscaled >/dev/null 2>&1; then
+  log "Starting tailscaled (userspace networking)"
+  nohup tailscaled \
+    --state="$TS_STATE_DIR/tailscaled.state" \
+    --socket="$TS_SOCKET" \
+    --tun=userspace-networking \
+    --outbound-http-proxy-listen="localhost:${TS_USERSPACE_PORT_HTTP}" \
+    --socks5-server="localhost:${TS_USERSPACE_PORT_SOCKS}" \
+    >/var/log/tailscaled.log 2>&1 &
+  for _ in $(seq 1 30); do
+    if "${TS_CMD[@]}" status >/dev/null 2>&1; then
+      break
+    fi
     sleep 1
-    sudo tailscaled "${TAILSCALED_ARGS[@]}" &
-    for _ in $(seq 1 30); do
-      sudo tailscale --socket="$TS_SOCKET" status >/dev/null 2>&1 && break
-      sleep 1
-    done
-  fi
+  done
 fi
 
-UP_ARGS=(--ssh --hostname="$HOSTNAME_VALUE" --accept-routes --auth-key="$AUTH_KEY")
+export ALL_PROXY="socks5h://localhost:${TS_USERSPACE_PORT_SOCKS}/"
+export HTTP_PROXY="http://localhost:${TS_USERSPACE_PORT_HTTP}/"
+export HTTPS_PROXY="http://localhost:${TS_USERSPACE_PORT_HTTP}/"
 
-if sudo tailscale status >/dev/null 2>&1; then
-  echo "[start_tailscale_cloud] already connected"
+UP_ARGS=(up --ssh --hostname="$TS_HOSTNAME" --accept-routes=false --reset)
+if [[ -n "$TS_AUTHKEY" ]]; then
+  UP_ARGS+=(--auth-key="$TS_AUTHKEY")
+  UP_ARGS+=(--timeout=60s)
 else
-  echo "[start_tailscale_cloud] joining tailnet"
-  sudo tailscale up "${UP_ARGS[@]}"
+  UP_ARGS+=(--timeout=120s)
 fi
 
-sudo tailscale status
-echo "[start_tailscale_cloud] done"
+log "Joining tailnet as ${TS_HOSTNAME}"
+if ! "${TS_CMD[@]}" "${UP_ARGS[@]}"; then
+  log "tailscale up did not complete; check TS_AUTHKEY secret or login URL from: ${TS_CMD[*]} status"
+  "${TS_CMD[@]}" status || true
+  exit 1
+fi
+
+log "Tailscale IPv4: $("${TS_CMD[@]}" ip -4)"
