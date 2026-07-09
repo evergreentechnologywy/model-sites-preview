@@ -4,9 +4,31 @@ set -euo pipefail
 
 AUTH_KEY="${TAILSCALE_AUTH_KEY:-${TS_AUTHKEY:-${TAILSCALE_AUTHKEY:-}}}"
 HOSTNAME_VALUE="${FLEET_HOSTNAME:-${TS_HOSTNAME:-cursor-model-sites-preview}}"
-TS_SOCKET="${TS_SOCKET:-/run/tailscale/tailscaled.sock}"
+TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
 
 log() { printf '[cursor_cloud_session_tailscale] %s\n' "$*"; }
+
+read_authkey_file() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  local key
+  key="$(tr -d '[:space:]' <"$path")"
+  [[ -n "$key" ]] || return 1
+  AUTH_KEY="$key"
+  return 0
+}
+
+if [[ -z "$AUTH_KEY" ]]; then
+  for candidate in \
+    /run/secrets/tailscale-auth-key \
+    /run/secrets/TS_AUTHKEY \
+    /run/secrets/ts_authkey \
+    /etc/evergreen/ts_authkey \
+    "${HOME}/.evergreen/ts_authkey" \
+    "${HOME}/.config/evergreen/ts_authkey"; do
+    read_authkey_file "$candidate" && break
+  done
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
@@ -22,7 +44,7 @@ if ! pgrep -x tailscaled >/dev/null 2>&1; then
   exec bash "$(dirname "$0")/install_cursor_cloud_tailscale.sh"
 fi
 
-if tailscale --socket="$TS_SOCKET" status 2>/dev/null | grep -qE '^100\.'; then
+if [[ -n "$(tailscale --socket="$TS_SOCKET" ip -4 2>/dev/null | tr -d '[:space:]')" ]]; then
   log "Session already connected"
   tailscale --socket="$TS_SOCKET" status
   exit 0

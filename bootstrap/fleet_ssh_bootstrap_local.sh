@@ -3,7 +3,7 @@
 set -euo pipefail
 
 TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
-TS_HOSTNAME="${TS_HOSTNAME:-${FLEET_HOSTNAME:-cursor-model-sites-preview}}"
+TS_HOSTNAME="${FLEET_HOSTNAME:-${TS_HOSTNAME:-cursor-model-sites-preview}}"
 TS_CMD=(tailscale --socket="$TS_SOCKET")
 
 log() { printf '[fleet_ssh_bootstrap_local] %s\n' "$*"; }
@@ -13,7 +13,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 if ! command -v tailscale >/dev/null 2>&1; then
-  log "Tailscale not installed; run bootstrap/start_tailscale_cloud.sh first"
+  log "Tailscale not installed; run bootstrap/install_cursor_cloud_tailscale.sh first"
   exit 1
 fi
 
